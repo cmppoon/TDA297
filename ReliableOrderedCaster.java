@@ -26,6 +26,8 @@ public class ReliableOrderedCaster extends Multicaster {
             activeHost[i] = 1;
         }
         sequencerId = getMinActiveHost();
+	assert sequencerId == -1 : "Free Sequencer not found";
+		
         localSequence = 0;
         mcui.debug("Sequencer is "+ sequencerId);
         mcui.debug("The network has "+hosts+" hosts!");
@@ -84,6 +86,7 @@ public class ReliableOrderedCaster extends Multicaster {
         }
     }
 
+
     /**
      * Signals that a peer is down and has been down for a while to
      * allow for messages taking different paths from this peer to
@@ -91,6 +94,17 @@ public class ReliableOrderedCaster extends Multicaster {
      * @param peer	The dead peer
      */
     public void basicpeerdown(int peer) {
-        mcui.debug("Peer "+peer+" has been dead for a while now!");
+	    mcui.debug("Peer "+peer+" has been dead for a while now!");
+		
+	    // Select a new sequencer
+	    if(sequencerId == peer) {
+		    for (int i = 0; i < hosts; i++) {
+			    if (activeHost[i]) {
+				    sequencerId = i;
+				    break;
+			    }
+		    }
+	    }
+
     }
 }
