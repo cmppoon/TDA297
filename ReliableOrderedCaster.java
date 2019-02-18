@@ -13,7 +13,7 @@ public class ReliableOrderedCaster extends Multicaster {
     private int sequencerId = 0;
     //history list to keep track of messages since last broadcast
     private List<MyMessage> historyList = new ArrayList<MyMessage>(); 
-    private in localSequence = 0;
+    private int localSequence = 0;
     private Queue<MyMessage> holdBackQueue = new LinkedList<MyMessage>();
 
     public void init() {
