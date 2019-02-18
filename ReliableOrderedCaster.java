@@ -1,11 +1,21 @@
 
 import mcgui.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Queue;
+import java.util.LinkedList;
 
 public class ReliableOrderedCaster extends Multicaster {
 
     /**
      * No initializations needed for this simple one
      */
+    private int sequencerId = 0;
+    //history list to keep track of messages since last broadcast
+    private List<MyMessage> historyList = new ArrayList<MyMessage>(); 
+    private in localSequence = 0;
+    private Queue<MyMessage> holdBackQueue = new LinkedList<MyMessage>();
+
     public void init() {
         mcui.debug("The network has "+hosts+" hosts!");
     }
