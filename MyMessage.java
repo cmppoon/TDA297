@@ -9,12 +9,14 @@ import mcgui.*;
 public class MyMessage extends Message {
         
     String text;
+    String messageType;
     int sequence;
     int messageCreator;
 
-    public MyMessage(int sender,String text, int messageCreator, int sequence) {
+    public MyMessage(int sender,String text, int sequence, String messageType) {
         super(sender);
         this.text = text;
+        this.messageType = messageType;
         this.messageCreator = messageCreator;
         this.sequence = sequence;
     }
@@ -26,6 +28,14 @@ public class MyMessage extends Message {
      */
     public String getText() {
         return text;
+    }
+
+    public void setMessageType(String type){
+        this.messageType = type;
+    }
+
+    public boolean isSameMessage(MyMessage message){
+        return this.getSender() == message.getSender() && this.text.equals(message.text) && this.sequence == message.sequence && this.messageType.equals(message.messageType);
     }
     
     public static final long serialVersionUID = 0;
