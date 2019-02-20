@@ -1,5 +1,6 @@
 
 import mcgui.*;
+import java.util.ArrayList;
 
 /**
  * Message implementation for ExampleCaster.
@@ -12,6 +13,7 @@ public class MyMessage extends Message {
     String messageType;
     int sequence;
     int messageCreator;
+    ArrayList<MyMessage> history;
 
     public MyMessage(int sender,String text, int sequence, String messageType) {
         super(sender);
@@ -19,6 +21,7 @@ public class MyMessage extends Message {
         this.messageType = messageType;
         this.messageCreator = messageCreator;
         this.sequence = sequence;
+        this.history = new ArrayList<MyMessage>();
     }
     
     /**
@@ -37,6 +40,15 @@ public class MyMessage extends Message {
     public boolean isSameMessage(MyMessage message){
         return this.getSender() == message.getSender() && this.text.equals(message.text) && this.sequence == message.sequence && this.messageType.equals(message.messageType);
     }
+
+    public void setHistory(ArrayList<MyMessage> history){
+        this.history = history;
+    }
+
+    public void setSequence(int sequence){
+        this.sequence = sequence;
+    }
+
     
     public static final long serialVersionUID = 0;
 }
