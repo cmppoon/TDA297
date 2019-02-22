@@ -7,23 +7,16 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.LinkedList;
 
-//TODO: implement not deliver if the message has already delivered, casual ordering, debugging
-
 public class ReliableOrderedCaster extends Multicaster {
-
-	/**
-	 * No initializations needed for this simple one
-	 */
 	private int sequencerId;
-    private int globalSequence;
-	private int localSequence;
-	private int[] activeHost;
-	//add list of all active hosts
-	//history list to keep track of messages since last broadcast
-	
-	private ArrayList<MyMessage> historyList = new ArrayList<MyMessage>(); 
-	private ArrayList<MyMessage> deliveredList = new ArrayList<MyMessage>();
-	private LinkedList<MyMessage> holdBackQueue = new LinkedList<MyMessage>();
+    private int globalSequence; //sequence used by sequencer
+	private int localSequence; 
+    private int createdAt; 
+	private int[] activeHost; //list of all avtive hosts
+	private ArrayList<MyMessage> historyList = new ArrayList<MyMessage>(); //keep track of history since last broadcast
+	private ArrayList<MyMessage> deliveredList = new ArrayList<MyMessage>(); //keep track of all delivered message
+    private ArrayList<MyMessage> notDeliveredList = new ArrayList<MyMessage>(); //keep track of all sent message but not yet received back
+	private LinkedList<MyMessage> holdBackQueue = new LinkedList<MyMessage>(); //keep message unti localSequence == message.sequence
 
 	public void init() {
 		activeHost = new int[hosts];
@@ -34,24 +27,16 @@ public class ReliableOrderedCaster extends Multicaster {
 		assert sequencerId == -1 : "Free Sequencer not found";
         globalSequence = 0;
 		localSequence = 0;
+        createdAt = 0;
 		mcui.debug("Sequencer is "+ sequencerId);
 		mcui.debug("The network has "+hosts+" hosts!");
-	}
-
-	public void sequencerCast(MyMessage message){
-		for(int i=0; i < hosts; i++) {
-			/* Sends to everyone except itself */
-			if(i != id) {
-				bcom.basicsend(i, message);
-			}
-		}
 	}
 
 	/**
 	 * The GUI calls this module to multicast a message
 	 */
 	public void cast(String messagetext) {
-        MyMessage message = new MyMessage(id,messagetext,0,"initial");
+        MyMessage message = new MyMessage(id,messagetext,0,"initial", createdAt++);
         Collections.sort(historyList, new Comparator<MyMessage>(){
                 @Override
                 public int compare(MyMessage m1, MyMessage m2){
@@ -61,23 +46,20 @@ public class ReliableOrderedCaster extends Multicaster {
 		if (id == sequencerId){
 			//sequencer
             message.setMessageType("order");
-            message.setSequence(globalSequence); // might need to change to global sequence later
-            message.setHistory(historyList);
+            message.setSequence(globalSequence);
+            message.setHistory(historyList); // attach history before broadcasting
 			sequencerCast(message);
-			mcui.debug("Sent out: \""+messagetext+"\"");
 			mcui.deliver(id, messagetext);
 			deliveredList.add(message);
-            historyList = new ArrayList<MyMessage>();
+            historyList = new ArrayList<MyMessage>(); // clear histroy
             globalSequence++;
 
 		} else {
 			//node is not a sequencer, send to sequencer
-            mcui.debug(""+ historyList.size());
-            message.setHistory(historyList);
-            mcui.debug(""+message.history.size());
+            message.setHistory(historyList); // attach history before sending to sequencer
 			bcom.basicsend(sequencerId, message);
-            historyList = new ArrayList<MyMessage>();
-			mcui.debug("Send out to sequencer");
+            historyList = new ArrayList<MyMessage>(); // clear history
+            notDeliveredList.add(message); // add message to notDeliveredList
 		}
 	}
 
@@ -87,72 +69,39 @@ public class ReliableOrderedCaster extends Multicaster {
 	 */
 	public void basicreceive(int peer,Message message) {
 		MyMessage receivedMessage = ((MyMessage)message);
-        boolean isAlreadyContain = false;
 		if (id == sequencerId){
 			//sequencer, 
 			if (receivedMessage.messageType.equals("initial")){
-                mcui.debug("in sequencer");
-                mcui.debug(""+receivedMessage.history.size());
 				receivedMessage.setMessageType("order");
-                receivedMessage.setSequence(globalSequence);
+                receivedMessage.setSequence(globalSequence); // assign sequence to message
 				sequencerCast(receivedMessage);
-				mcui.debug("Sent out: \""+receivedMessage.text+"\"");
 				mcui.deliver(receivedMessage.getSender(), receivedMessage.text);
 				deliveredList.add(receivedMessage);
 				historyList.add(receivedMessage);  // Add the message to history list before broadcasting
                 globalSequence++;
 			}
-		} else{
+		} 
+        else {
+            //not a sequencer 
+            //adjust global clock
             if (receivedMessage.sequence > globalSequence) {
                 globalSequence = receivedMessage.sequence+1;
             }
-            //check for causal ordering first
-            causalDeliver(receivedMessage);
-
-			//not a sequencer, wait until localSequence == S, then deliver a message
-			//put the received message in a queue if not yet delivered the message
-			if (localSequence != receivedMessage.sequence){
-				if (!isAlreadyContain(deliveredList, receivedMessage)) {
-					mcui.debug("put message in a queue");
-					holdBackQueue.add(receivedMessage);
-					Collections.sort(holdBackQueue, new Comparator<MyMessage>(){
-							@Override
-							public int compare(MyMessage m1, MyMessage m2){
-							return m1.sequence - m2.sequence;
-						}
-					});
-				}
-			} else {
-				//deliver
-				if (!isAlreadyContain(deliveredList, receivedMessage)){
-					reliableCast(receivedMessage);
-				}
-				mcui.debug("add message to deliveredList");
-				mcui.deliver(receivedMessage.getSender(), receivedMessage.text);
-				deliveredList.add(receivedMessage);
-                if (receivedMessage.getSender() != id){
-                    historyList.add(receivedMessage);
-                }
-				localSequence++;
-			}
-
-			//loop though all items in queue and deliver it if message.sequence == localSequence
-			Iterator<MyMessage> iterator = holdBackQueue.iterator();
-			while (iterator.hasNext()) {
-				mcui.debug("loop to try to deliver a message");
-				MyMessage msg = (MyMessage)iterator.next();
-				if (msg.sequence == localSequence){
-                    if (!isAlreadyContain(deliveredList, msg)){
-                        mcui.deliver(msg.getSender(), msg.text);
-                        deliveredList.add(msg);
-                        historyList.add(msg);
-                        iterator.remove();
-                        localSequence++;
-                        reliableCast(msg);
-                    }
-				}
-			}
+            checkHistory(receivedMessage); // check message's history first
+            basicDeliver(receivedMessage); 
+            checkHoldBackQueue(); //try to deliver message in holdBackQueue if possible
 		}
+
+        //remove message in notDelivereList since the message is received
+        if (receivedMessage.getSender() == id) {
+            Iterator<MyMessage> iterator = notDeliveredList.iterator();
+            while (iterator.hasNext()){
+                MyMessage m = (MyMessage)iterator.next();
+                if (receivedMessage.text.equals(m.text) && receivedMessage.createdAt == m.createdAt){
+                    iterator.remove();    
+                } 
+            }
+        }
 	}
 
 
@@ -170,6 +119,11 @@ public class ReliableOrderedCaster extends Multicaster {
             sequencerId = getMinActiveHost();
 		}
         mcui.debug("Now Sequencer is : " + sequencerId);
+
+        //after a new sequencer is selected, send every message in notDeliveredList to the new sequencer    
+        for (MyMessage m : notDeliveredList) {
+            bcom.basicsend(sequencerId, m);
+        }
 	}
 
 	public int getMinActiveHost() {
@@ -181,9 +135,7 @@ public class ReliableOrderedCaster extends Multicaster {
 		return -1;
 	}
 
-	public void reliableCast(MyMessage message){
-		//broadcast to others to provide reliable broadcast
-		mcui.debug("reliable broadcast");
+	public void sequencerCast(MyMessage message){
 		for(int i=0; i < hosts; i++) {
 			/* Sends to everyone except itself */
 			if(i != id) {
@@ -192,16 +144,81 @@ public class ReliableOrderedCaster extends Multicaster {
 		}
 	}
 
-    public void causalDeliver(MyMessage receivedMessage){
+	public void reliableCast(MyMessage message){
+		//broadcast to others to provide reliable broadcast
+		for(int i=0; i < hosts; i++) {
+			/* Sends to everyone except itself */
+			if(i != id) {
+				bcom.basicsend(i, message);
+			}
+		}
+	}
+
+    public void checkHoldBackQueue(){
+        //loop though all items in queue and deliver it if message.sequence == localSequence
+        Iterator<MyMessage> iterator = holdBackQueue.iterator();
+        while (iterator.hasNext()) {
+            MyMessage msg = (MyMessage)iterator.next();
+            if (localSequence < msg.sequence) {
+                if (msg.sequence == localSequence){
+                    if (!isAlreadyContain(deliveredList, msg)){
+                        mcui.deliver(msg.getSender(), msg.text);
+                        deliveredList.add(msg);
+                        if (msg.getSender() != id){
+                            historyList.add(msg);
+                        }
+                        iterator.remove();
+                        localSequence++;
+                        reliableCast(msg);
+                    }
+                }
+            }
+            else {
+                break;
+            }
+        }
+    }
+
+    public void checkHistory(MyMessage receivedMessage){
         for (MyMessage history : receivedMessage.history){
-            mcui.debug("inside message history");
-            mcui.debug(history.text);
             if (!isAlreadyContain(deliveredList, history)){
                 //deliver
                 mcui.deliver(history.getSender(), history.text);
                 deliveredList.add(history);
-                historyList.add(history);
+                if (history.getSender() != id){
+                    historyList.add(history);
+                }
                 localSequence++;
+                reliableCast(history);
+            }
+        }
+    }
+
+    public void basicDeliver(MyMessage receivedMessage){
+        //wait until localSequence == receivedMessage.sequence, then deliver a message
+        if (localSequence != receivedMessage.sequence){
+            //put the received message in a queue if not yet delivered the message
+            if (!isAlreadyContain(deliveredList, receivedMessage)) {
+                holdBackQueue.add(receivedMessage);
+                Collections.sort(holdBackQueue, new Comparator<MyMessage>(){
+                        @Override
+                        public int compare(MyMessage m1, MyMessage m2){
+                        return m1.sequence - m2.sequence;
+                    }
+                });
+            }
+        } 
+        else {
+            //deliver
+            if (!isAlreadyContain(deliveredList, receivedMessage)){
+                mcui.deliver(receivedMessage.getSender(), receivedMessage.text);
+                deliveredList.add(receivedMessage);
+                if (receivedMessage.getSender() != id){
+                    historyList.add(receivedMessage);
+                }
+                localSequence++;
+                //if the message is delivered for the first time, broadcast to every other nodes
+                reliableCast(receivedMessage);
             }
         }
     }

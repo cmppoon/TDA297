@@ -12,16 +12,16 @@ public class MyMessage extends Message {
     String text;
     String messageType;
     int sequence;
-    int messageCreator;
+    int createdAt;
     ArrayList<MyMessage> history;
 
-    public MyMessage(int sender,String text, int sequence, String messageType) {
+    public MyMessage(int sender,String text, int sequence, String messageType, int createdAt) {
         super(sender);
         this.text = text;
         this.messageType = messageType;
-        this.messageCreator = messageCreator;
         this.sequence = sequence;
         this.history = new ArrayList<MyMessage>();
+        this.createdAt = createdAt;
     }
     
     /**
